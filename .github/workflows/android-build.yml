@@ -1,0 +1,97 @@
+
+name: Android ARM64 Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build newscan (arm64-v8a)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager --install "ndk;25.2.9519653"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> "$GITHUB_ENV"
+
+      - name: Check build tools
+        run: |
+          cmake --version
+          g++ --version
+          test -f "$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
+
+      - name: Fix hardcoded NDK path
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("CMakeLists.txt")
+          text = path.read_text(encoding="utf-8")
+
+          old = "set(CMAKE_ANDROID_NDK D:/ndkollvm/android-ndk-r25c.Ollvm/android-ndk-r25c)"
+          new = 'set(CMAKE_ANDROID_NDK "$ENV{ANDROID_NDK_HOME}")'
+
+          if old not in text:
+              raise SystemExit(
+                  "ERROR: Expected hardcoded NDK path was not found. "
+                  "Please inspect CMakeLists.txt."
+              )
+
+          path.write_text(
+              text.replace(old, new, 1),
+              encoding="utf-8"
+          )
+          print("NDK path patched for GitHub Actions.")
+          PY
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile
+        run: |
+          cmake --build build --parallel 2
+
+      - name: Verify executable
+        run: |
+          set -eu
+          test -f outputs/newscan
+          test -x outputs/newscan
+          file outputs/newscan
+          ./outputs/newscan --help
+
+      - name: Package build
+        run: |
+          mkdir -p artifacts
+          cp outputs/newscan artifacts/newscan-arm64
+          sha256sum artifacts/newscan-arm64 \
+            > artifacts/SHA256SUMS.txt
+          {
+            echo "Platform: Android arm64-v8a"
+            echo "Build type: Release"
+            echo "NDK: 25.2.9519653"
+            echo "C++ standard: C++17"
+            echo "Commit: $GITHUB_SHA"
+          } > artifacts/BUILD-INFO.txt
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: PointerScan-Android-arm64
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
