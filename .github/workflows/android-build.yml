@@ -74,13 +74,23 @@ jobs:
         run: |
           cmake --build build --parallel 2
 
-      - name: Verify executable
+      - name: Verify Android ARM64 executable
         run: |
           set -eu
+
           test -f outputs/newscan
           test -x outputs/newscan
+
+          echo "=== File type ==="
           file outputs/newscan
-          ./outputs/newscan --help
+
+          echo "=== ELF architecture ==="
+          readelf -h outputs/newscan | grep -E 'Class:|Machine:'
+
+          echo "=== Android dynamic linker ==="
+          readelf -l outputs/newscan | grep -F '/system/bin/linker64'
+
+          echo "Android ARM64 executable checks passed."
 
       - name: Package build
         run: |
